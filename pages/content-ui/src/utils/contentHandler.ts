@@ -645,6 +645,12 @@ export const clickCheckAnswersButton = (): Promise<boolean> => {
               const button = buttons[i] as HTMLButtonElement;
               const buttonText = button.textContent?.trim().toLowerCase() || '';
 
+              // Skip buttons with "continue to final exam" text
+              if (buttonText.includes('continue to final exam')) {
+                console.log(`  Skipping button with text containing "continue to final exam"`);
+                continue;
+              }
+
               if (buttonText.includes('check') && buttonText.includes('answer') && !button.disabled) {
                 console.log(`  Clicking button with text: "${button.textContent?.trim()}"`);
                 button.click();
@@ -657,6 +663,14 @@ export const clickCheckAnswersButton = (): Promise<boolean> => {
             // If no button with "Check Answers" text, click the first enabled button
             for (let i = 0; i < buttons.length; i++) {
               const button = buttons[i] as HTMLButtonElement;
+              const buttonText = button.textContent?.trim().toLowerCase() || '';
+
+              // Skip buttons with "continue to final exam" text
+              if (buttonText.includes('continue to final exam')) {
+                console.log(`  Skipping button with text containing "continue to final exam"`);
+                continue;
+              }
+
               if (!button.disabled) {
                 console.log(`  Clicking first enabled button with text: "${button.textContent?.trim()}"`);
                 button.click();
@@ -674,7 +688,7 @@ export const clickCheckAnswersButton = (): Promise<boolean> => {
       // Try finding by text content
       const buttonByText = Array.from(allButtons).find(b => {
         const text = b.textContent?.trim().toLowerCase() || '';
-        return text.includes('check') && text.includes('answer');
+        return text.includes('check') && text.includes('answer') && !text.includes('continue to final exam');
       }) as HTMLButtonElement;
 
       if (buttonByText && !buttonByText.disabled) {
@@ -692,6 +706,11 @@ export const clickCheckAnswersButton = (): Promise<boolean> => {
 
         const text = btnEl.textContent?.trim().toLowerCase() || '';
         const className = btnEl.className.toLowerCase();
+
+        // Skip buttons with "continue to final exam" text
+        if (text.includes('continue to final exam')) {
+          return false;
+        }
 
         return (
           text.includes('submit') ||
@@ -732,17 +751,33 @@ export const clickNextButton = async (): Promise<boolean> => {
       ];
 
       let nextButton: HTMLButtonElement | null = null;
+      const foundButtons: HTMLButtonElement[] = [];
 
       // Try each selector
       for (const selector of nextButtonSelectors) {
-        nextButton = document.querySelector(selector) as HTMLButtonElement;
-        if (nextButton && !nextButton.disabled) {
-          break;
+        const buttons = document.querySelectorAll(selector);
+        if (buttons.length > 0) {
+          // Filter out buttons with "continue to final exam" text
+          for (let i = 0; i < buttons.length; i++) {
+            const button = buttons[i] as HTMLButtonElement;
+            const buttonText = button.textContent?.trim().toLowerCase() || '';
+
+            if (!button.disabled && !buttonText.includes('continue to final exam')) {
+              foundButtons.push(button);
+            } else if (buttonText.includes('continue to final exam')) {
+              console.log(`Skipping button with text containing "continue to final exam"`);
+            }
+          }
         }
       }
 
+      // Use the first valid button found
+      if (foundButtons.length > 0) {
+        nextButton = foundButtons[0];
+      }
+
       if (nextButton && !nextButton.disabled) {
-        console.log('Found Next button, clicking to proceed', nextButton);
+        console.log('Found Next button, clicking to proceed', nextButton.textContent);
         nextButton.click();
         resolve(true);
       } else {

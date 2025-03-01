@@ -9,10 +9,10 @@ export default function App() {
   const [examStarted, setExamStarted] = useState(false);
   const [remainingTime, setRemainingTime] = useState<number>(0);
   const [currentQA, setCurrentQA] = useState<{ question: string; answer?: string } | null>(null);
-  const [showInstructions] = useState(true);
+  const [showInstructions, setShowInstructions] = useState(true);
   const [contentType, setContentType] = useState<ContentType | null>(null);
   const [processingContent, setProcessingContent] = useState(false);
-  const [debugMode, setDebugMode] = useState(false);
+  const [debugMode, setDebugMode] = useState(true);
   const [aiStatus, setAiStatus] = useState<'idle' | 'processing' | 'success' | 'error'>('idle');
   const [aiError, setAiError] = useState<string | null>(null);
   const [processedQuestions, setProcessedQuestions] = useState<number>(0);
@@ -206,7 +206,13 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
   };
 
   // Function to send message to background script
-  const sendMessageToBackground = (text: string): Promise<any> => {
+  const sendMessageToBackground = (
+    text: string,
+  ): Promise<{
+    status: string;
+    aiResponse?: string;
+    error?: string;
+  }> => {
     return new Promise(resolve => {
       chrome.runtime.sendMessage({ type: 'SEND_MESSAGE', text }, response => {
         resolve(response);
@@ -242,6 +248,7 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
   const handleStartExam = async () => {
     console.log('Starting exam automation...');
     setExamStarted(true);
+    setShowInstructions(false);
     setRemainingTime(3600); // Set timer for 1 hour (3600 seconds)
     setAiStatus('idle');
     setAiError(null);
