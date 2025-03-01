@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useMessageHandler } from './hooks/useMessageHandler';
-import { processCurrentContent, debugPageContent, hasTryAgainButton } from './utils/contentHandler';
+import { processCurrentContent, debugPageContent, hasTryAgainButton, clickNextButton } from './utils/contentHandler';
 import type { ContentType, QuestionData, AnswerData } from './utils/contentHandler';
 
 export default function App() {
@@ -50,12 +50,28 @@ export default function App() {
           if (hasTryAgainButton()) {
             console.log('Found Try Again button - user intervention needed');
             setNeedsUserIntervention(true);
+            setProcessingContent(false);
             return;
           }
 
           const detectedContentType = await processCurrentContent(handleOpenAIProcessing);
           setContentType(detectedContentType);
+
+          // For text content, we don't need to show it as a question being processed
+          if (detectedContentType === 'text_content') {
+            setCurrentQA(null);
+          }
+
           console.log(`Processed content of type: ${detectedContentType}`);
+
+          // If content type is unknown, try clicking Next button as a fallback
+          if (detectedContentType === 'unknown') {
+            console.log('Attempting to click Next button as fallback for unknown content');
+            const clicked = await clickNextButton();
+            if (clicked) {
+              console.log('Successfully clicked Next button as fallback');
+            }
+          }
 
           // Check again after processing in case we now have a Try Again button
           if (hasTryAgainButton()) {

@@ -5,7 +5,7 @@
 /**
  * Content types that can be detected
  */
-export type ContentType = 'true_false' | 'multiple_choice' | 'unknown';
+export type ContentType = 'true_false' | 'multiple_choice' | 'unknown' | 'text_content';
 
 /**
  * Interface for question data
@@ -67,16 +67,61 @@ export const markContentAsProcessed = (contentId: string): void => {
  * @returns The detected content type
  */
 export const detectContentType = (): ContentType => {
-  const trueFalseElement = document.querySelector('.ces-inquiry-tof');
-  const multipleChoiceElement = document.querySelector('.ces-inquiry-multi-choice');
+  // Try multiple selectors for each content type to be more thorough
+  const trueFalseSelectors = ['.ces-inquiry-tof', 'ces-inquiry-tof'];
+  const multipleChoiceSelectors = ['.ces-inquiry-multi-choice', 'ces-inquiry-multi-choice'];
+  const textContentSelectors = ['.ces-inquiry-text', 'ces-inquiry-text', '[ng-switch-when="TEXT_EDIT"]'];
 
+  // Check for true/false content
+  let trueFalseElement = null;
+  for (const selector of trueFalseSelectors) {
+    trueFalseElement = document.querySelector(selector);
+    if (trueFalseElement) break;
+  }
+
+  // Check for multiple choice content
+  let multipleChoiceElement = null;
+  for (const selector of multipleChoiceSelectors) {
+    multipleChoiceElement = document.querySelector(selector);
+    if (multipleChoiceElement) break;
+  }
+
+  // Check for text content
+  let textContentElement = null;
+  for (const selector of textContentSelectors) {
+    textContentElement = document.querySelector(selector);
+    if (textContentElement) break;
+  }
+
+  // Log all elements for debugging
   console.log('TRUE_FALSE Element:', trueFalseElement ? 'Found' : 'Not Found');
   console.log('MULTIPLE_CHOICE Element:', multipleChoiceElement ? 'Found' : 'Not Found');
+  console.log('TEXT_CONTENT Element:', textContentElement ? 'Found' : 'Not Found');
+
+  // Additional debugging - log all content-related elements
+  console.log('All content elements on page:');
+  const allContentElements = document.querySelectorAll('div[class*="inquiry"], div[ng-switch-when]');
+  allContentElements.forEach((el, index) => {
+    console.log(`Element ${index + 1}:`, el.tagName, el.className, el.getAttribute('ng-switch-when'));
+  });
+
+  // Check for Next button as a fallback
+  const nextButton = document.querySelector('button.unit-btn.next-unit-btn');
+  if (nextButton) {
+    console.log('Found Next button:', nextButton);
+  }
 
   if (trueFalseElement) {
     return 'true_false';
   } else if (multipleChoiceElement) {
     return 'multiple_choice';
+  } else if (textContentElement) {
+    return 'text_content';
+  } else if (nextButton) {
+    // If we found a Next button but couldn't identify the content type,
+    // treat it as text content as a fallback
+    console.log('Content type unknown but Next button found - treating as text content');
+    return 'text_content';
   } else {
     return 'unknown';
   }
@@ -673,6 +718,77 @@ export const clickCheckAnswersButton = (): Promise<boolean> => {
 };
 
 /**
+ * Clicks the Next button on any content type
+ * @returns Promise that resolves to true if the button was clicked
+ */
+export const clickNextButton = async (): Promise<boolean> => {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      // Try multiple selectors for the Next button
+      const nextButtonSelectors = [
+        'button.unit-btn.next-unit-btn:not([ng-click="ctrl.resetInquiry()"])',
+        'button.unit-btn.next-unit-btn[ng-click="ctrl.goToNextStep()"]',
+        'button.unit-btn.next-unit-btn',
+      ];
+
+      let nextButton: HTMLButtonElement | null = null;
+
+      // Try each selector
+      for (const selector of nextButtonSelectors) {
+        nextButton = document.querySelector(selector) as HTMLButtonElement;
+        if (nextButton && !nextButton.disabled) {
+          break;
+        }
+      }
+
+      if (nextButton && !nextButton.disabled) {
+        console.log('Found Next button, clicking to proceed', nextButton);
+        nextButton.click();
+        resolve(true);
+      } else {
+        console.warn('Next button not found or disabled');
+        // Log all buttons for debugging
+        const allButtons = document.querySelectorAll('button');
+        console.log('All buttons on page:');
+        allButtons.forEach((btn, index) => {
+          console.log(`Button ${index + 1}:`, btn.textContent?.trim(), btn.className, btn.disabled);
+        });
+        resolve(false);
+      }
+    }, 1000);
+  });
+};
+
+/**
+ * Handles text content by simply clicking the Next button
+ * @returns Promise that resolves when the action is complete
+ */
+export const handleTextContent = async (): Promise<void> => {
+  console.log('Processing text content');
+
+  try {
+    // Try to extract title and content for logging
+    const titleElement = document.querySelector('.content-title');
+    const contentElement = document.querySelector('.content-text');
+
+    const title = titleElement ? titleElement.textContent?.trim() || '' : '';
+    const content = contentElement ? contentElement.textContent?.trim() || '' : '';
+
+    console.log('Text content title:', title);
+    console.log('Text content (truncated):', content.substring(0, 100) + (content.length > 100 ? '...' : ''));
+
+    // Simply click the Next button
+    const clicked = await clickNextButton();
+
+    if (!clicked) {
+      console.warn('Failed to click Next button on text content');
+    }
+  } catch (error) {
+    console.error('Error handling text content:', error);
+  }
+};
+
+/**
  * Main function to process the current content
  * @param openAICallback Function to call with question data for OpenAI processing
  * @returns Promise that resolves with the detected content type
@@ -699,6 +815,10 @@ export const processCurrentContent = async (
       } else {
         console.warn('No OpenAI callback provided for multiple choice content');
       }
+      break;
+    case 'text_content':
+      console.log('Processing text content');
+      await handleTextContent();
       break;
     default:
       console.log('Unknown content type detected, no action taken');
