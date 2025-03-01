@@ -7,7 +7,6 @@ export default function App() {
   const { connectionStatus, response } = useMessageHandler();
 
   const [examStarted, setExamStarted] = useState(false);
-  const [remainingTime, setRemainingTime] = useState<number>(0);
   const [currentQA, setCurrentQA] = useState<{ question: string; answer?: string } | null>(null);
   const [showInstructions, setShowInstructions] = useState(true);
   const [contentType, setContentType] = useState<ContentType | null>(null);
@@ -19,18 +18,6 @@ export default function App() {
   const [isProcessingQuestion, setIsProcessingQuestion] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [needsUserIntervention, setNeedsUserIntervention] = useState<boolean>(false);
-
-  useEffect(() => {
-    let timer: NodeJS.Timeout;
-    if (examStarted && remainingTime > 0) {
-      timer = setInterval(() => {
-        setRemainingTime(prev => Math.max(0, prev - 1));
-      }, 1000);
-    }
-    return () => {
-      if (timer) clearInterval(timer);
-    };
-  }, [examStarted, remainingTime]);
 
   // Content processing loop
   useEffect(() => {
@@ -70,7 +57,14 @@ export default function App() {
             const clicked = await clickNextButton();
             if (clicked) {
               console.log('Successfully clicked Next button as fallback');
+              // Clear debug info when moving to next content
+              setDebugInfo('');
             }
+          }
+
+          // For any new content, clear the previous debug info
+          if (detectedContentType !== 'unknown') {
+            setDebugInfo('');
           }
 
           // Check again after processing in case we now have a Try Again button
@@ -184,10 +178,21 @@ Just provide the exact text of the correct answer.`;
 
       // Update debug info with the answers
       const debugAnswerInfo = `
+QUESTION DATA:
+Title: ${questionData.title}
+Question: ${questionData.question}
+${
+  questionData.type === 'true_false'
+    ? `Choices: ${questionData.choices.map((c, i) => `\n  ${i + 1}. ${c.text} (Options: ${c.options.join(' | ')})`).join('')}`
+    : questionData.type === 'multiple_choice'
+      ? `Options: ${questionData.choices.map((c, i) => `\n  ${i + 1}. ${c.text}`).join('')}`
+      : ''
+}
+
 ANSWERS FROM OPENAI:
 ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
       `;
-      setDebugInfo(prev => prev + debugAnswerInfo);
+      setDebugInfo(debugAnswerInfo);
       console.log('ANSWERS FROM OPENAI:', answers);
 
       setAiStatus('success');
@@ -249,7 +254,6 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
     console.log('Starting exam automation...');
     setExamStarted(true);
     setShowInstructions(false);
-    setRemainingTime(3600); // Set timer for 1 hour (3600 seconds)
     setAiStatus('idle');
     setAiError(null);
     setProcessedQuestions(0);
@@ -317,7 +321,7 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
             examStarted ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
           } text-white font-semibold rounded-lg transition-colors duration-200 shadow-sm`}
           disabled={examStarted}>
-          {examStarted ? `Automation: (${remainingTime}s remaining)` : "Let's Go"}
+          {examStarted ? 'Running...' : "Let's Go"}
         </button>
 
         <button
@@ -371,23 +375,23 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
       )}
 
       {debugInfo && (
-        <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 overflow-auto max-h-[200px]">
-          <h3 className="text-xs font-semibold text-gray-700 mb-1">Debug Info:</h3>
-          <pre className="text-xs text-gray-800 whitespace-pre-wrap">{debugInfo}</pre>
+        <div className="bg-gray-50 p-3 rounded-lg border border-gray-200 overflow-auto max-h-[250px]">
+          <h3 className="text-base font-semibold text-gray-700 mb-1">Debug Info:</h3>
+          <pre className="text-base text-gray-800 whitespace-pre-wrap leading-relaxed">{debugInfo}</pre>
         </div>
       )}
 
       {currentQA && (
         <div className="bg-white p-4 rounded-lg border border-gray-200">
           <div className="mb-2">
-            <h3 className="text-xs font-semibold text-gray-600 mb-1">Current Question:</h3>
+            <h3 className="text-sm font-semibold text-gray-600 mb-1">Current Question:</h3>
             <p className="text-sm text-gray-800 whitespace-pre-wrap">
               {currentQA.question.length > 400 ? currentQA.question.substring(0, 400) + '...' : currentQA.question}
             </p>
           </div>
           {currentQA.answer && (
             <div>
-              <h3 className="text-xs font-semibold text-gray-600 mb-1">Answer:</h3>
+              <h3 className="text-sm font-semibold text-gray-600 mb-1">Answer:</h3>
               <p className="text-sm text-gray-800 whitespace-pre-wrap">
                 {currentQA.answer.length > 400 ? currentQA.answer.substring(0, 400) + '...' : currentQA.answer}
               </p>

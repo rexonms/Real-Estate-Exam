@@ -707,8 +707,13 @@ export const clickCheckAnswersButton = (): Promise<boolean> => {
         const text = btnEl.textContent?.trim().toLowerCase() || '';
         const className = btnEl.className.toLowerCase();
 
-        // Skip buttons with "continue to final exam" text
-        if (text.includes('continue to final exam')) {
+        // Skip buttons with unwanted text
+        if (
+          text.includes('continue to final exam') ||
+          text.includes('continue to unit exam') ||
+          text.includes('continue to lesson')
+        ) {
+          console.log(`Skipping button with text: "${btnEl.textContent?.trim()}"`);
           return false;
         }
 
@@ -757,15 +762,25 @@ export const clickNextButton = async (): Promise<boolean> => {
       for (const selector of nextButtonSelectors) {
         const buttons = document.querySelectorAll(selector);
         if (buttons.length > 0) {
-          // Filter out buttons with "continue to final exam" text
+          // Filter out buttons with unwanted text
           for (let i = 0; i < buttons.length; i++) {
             const button = buttons[i] as HTMLButtonElement;
             const buttonText = button.textContent?.trim().toLowerCase() || '';
 
-            if (!button.disabled && !buttonText.includes('continue to final exam')) {
+            // Skip buttons with text containing "continue to final exam", "continue to unit exam", or "continue to lesson"
+            if (
+              !button.disabled &&
+              !buttonText.includes('continue to final exam') &&
+              !buttonText.includes('continue to unit exam') &&
+              !buttonText.includes('continue to lesson')
+            ) {
               foundButtons.push(button);
-            } else if (buttonText.includes('continue to final exam')) {
-              console.log(`Skipping button with text containing "continue to final exam"`);
+            } else if (
+              buttonText.includes('continue to final exam') ||
+              buttonText.includes('continue to unit exam') ||
+              buttonText.includes('continue to lesson')
+            ) {
+              console.log(`Skipping button with text: "${button.textContent?.trim()}"`);
             }
           }
         }
