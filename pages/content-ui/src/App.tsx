@@ -1,6 +1,13 @@
 import { useState, useEffect } from 'react';
 import { useMessageHandler } from './hooks/useMessageHandler';
-import { processCurrentContent, debugPageContent, hasTryAgainButton, clickNextButton } from './utils/contentHandler';
+import {
+  processCurrentContent,
+  debugPageContent,
+  hasTryAgainButton,
+  clickNextButton,
+  isExamSubmissionDialogPresent,
+  clickSubmitExamButton,
+} from './utils/contentHandler';
 import type { ContentType, QuestionData, AnswerData } from './utils/contentHandler';
 
 export default function App() {
@@ -18,6 +25,58 @@ export default function App() {
   const [isProcessingQuestion, setIsProcessingQuestion] = useState(false);
   const [debugInfo, setDebugInfo] = useState<string>('');
   const [needsUserIntervention, setNeedsUserIntervention] = useState<boolean>(false);
+  const [examSubmissionDetected, setExamSubmissionDetected] = useState<boolean>(false);
+  const [position, setPosition] = useState({ x: 50, y: 50 });
+
+  // Remove the draggable functionality for now
+  useEffect(() => {
+    // We'll keep this empty for now and implement draggable later
+  }, []);
+
+  // Add keyframe animation for robot
+  useEffect(() => {
+    // Create style element for keyframes if it doesn't exist
+    const existingStyle = document.getElementById('robot-animation-style');
+    if (!existingStyle) {
+      const style = document.createElement('style');
+      style.id = 'robot-animation-style';
+      style.textContent = `
+        @keyframes moveRobot {
+          0% {
+            left: 0;
+          }
+          50% {
+            left: calc(100% - 60px);
+          }
+          100% {
+            left: 0;
+          }
+        }
+        
+        .robot-container {
+          position: relative;
+          width: 100%;
+          height: 100px;
+          overflow: hidden;
+        }
+        
+        .robot {
+          position: absolute;
+          left: 0;
+          animation: moveRobot 5s linear infinite;
+        }
+      `;
+      document.head.appendChild(style);
+    }
+
+    // Clean up on unmount
+    return () => {
+      const style = document.getElementById('robot-animation-style');
+      if (style) {
+        document.head.removeChild(style);
+      }
+    };
+  }, []);
 
   // Content processing loop
   useEffect(() => {
@@ -33,6 +92,22 @@ export default function App() {
             debugPageContent();
           }
 
+          // Check for exam submission dialog
+          const submissionDialogPresent = isExamSubmissionDialogPresent();
+          if (submissionDialogPresent) {
+            setExamSubmissionDetected(true);
+            console.log('Exam submission dialog detected');
+
+            // Automatically click the Submit Exam button
+            const clicked = await clickSubmitExamButton();
+            if (clicked) {
+              console.log('Successfully clicked Submit Exam button');
+              setDebugInfo(prev => prev + '\n\nEXAM SUBMISSION:\nClicked "Submit Exam" button');
+            }
+          } else {
+            setExamSubmissionDetected(false);
+          }
+
           // Check if there's a Try Again button before processing
           if (hasTryAgainButton()) {
             console.log('Found Try Again button - user intervention needed');
@@ -41,7 +116,19 @@ export default function App() {
             return;
           }
 
-          const detectedContentType = await processCurrentContent(handleOpenAIProcessing);
+          // Process the current content
+          // eslint-disable-next-line prettier/prettier
+          const detectedContentType = await processCurrentContent(questionData => {
+            // Only send actual questions to OpenAI, not text content
+            if (questionData.type === 'text_content' || questionData.type === 'unknown') {
+              console.log(`Skipping OpenAI processing for ${questionData.type} content`);
+              return Promise.resolve({ answers: [] });
+            }
+            // Process actual questions with OpenAI
+            return handleOpenAIProcessing(questionData);
+          });
+
+          // eslint-disable-next-line prettier/prettier
           setContentType(detectedContentType);
 
           // For text content, we don't need to show it as a question being processed
@@ -57,14 +144,20 @@ export default function App() {
             const clicked = await clickNextButton();
             if (clicked) {
               console.log('Successfully clicked Next button as fallback');
-              // Clear debug info when moving to next content
+              // Clear debug info and content state when moving to next content
               setDebugInfo('');
+              setCurrentQA(null);
+              setContentType(null);
+              setAiStatus('idle');
             }
           }
 
-          // For any new content, clear the previous debug info
+          // For any new content, clear the previous debug info and content state
           if (detectedContentType !== 'unknown') {
             setDebugInfo('');
+            setCurrentQA(null);
+            setContentType(null);
+            setAiStatus('idle');
           }
 
           // Check again after processing in case we now have a Try Again button
@@ -139,11 +232,11 @@ Format your answer EXACTLY as:
 ${questionData.choices.map((_, index) => `${index + 1}. [EXACT OPTION TEXT]`).join('\n')}
 
 No explanation or additional text.`;
-      } else if (questionData.type === 'multiple_choice') {
+      } else if (questionData.type === 'multiple_choice' || questionData.type === 'unit_exam') {
         prompt = `
 You are a real estate exam expert. Answer the following multiple choice question with precision:
 
-Title: ${questionData.title}
+${questionData.type === 'unit_exam' ? '' : 'Title: ' + questionData.title + '\n'}
 Question: ${questionData.question}
 
 Choose the best answer from these options:
@@ -236,7 +329,7 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
         const match = line.match(/^\d+\.\s*(.*)/);
         return match ? match[1].trim() : '';
       });
-    } else if (questionType === 'multiple_choice') {
+    } else if (questionType === 'multiple_choice' || questionType === 'unit_exam') {
       // For multiple choice, we expect just the text of the answer
       // Clean up any numbering or extra text
       const cleanResponse = response
@@ -269,7 +362,19 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
         debugPageContent();
       }
 
-      const detectedContentType = await processCurrentContent(handleOpenAIProcessing);
+      // Process the current content with the same filtering logic
+      // eslint-disable-next-line prettier/prettier
+      const detectedContentType = await processCurrentContent(questionData => {
+        // Only send actual questions to OpenAI, not text content
+        if (questionData.type === 'text_content' || questionData.type === 'unknown') {
+          console.log(`Skipping OpenAI processing for ${questionData.type} content`);
+          return Promise.resolve({ answers: [] });
+        }
+        // Process actual questions with OpenAI
+        return handleOpenAIProcessing(questionData);
+      });
+
+      // eslint-disable-next-line prettier/prettier
       setContentType(detectedContentType);
     } catch (error) {
       console.error('Error processing initial content:', error);
@@ -302,41 +407,64 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
   };
 
   return (
-    <div className="fixed top-[50px] right-4 z-50 flex flex-col gap-4 rounded-lg bg-white p-6 shadow-xl w-[400px] border border-gray-200">
+    <div
+      id="real-estate-exam-extension"
+      className="fixed z-50 flex flex-col gap-4 rounded-lg bg-white pt-4 pb-6 px-6 shadow-xl w-[400px] border border-gray-200"
+      style={{
+        top: '50px',
+        right: '20px',
+        left: 'auto',
+        bottom: 'auto',
+      }}>
       {showInstructions && (
-        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200">
+        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 ">
           <h2 className="text-lg font-semibold text-blue-800 mb-2">Instructions</h2>
-          <ol className="list-decimal pl-4 space-y-2 text-blue-700">
-            <li>Open your exam Unit Page</li>
-            <li>Start the automated process</li>
-          </ol>
-          <p className="text-xs text-blue-600 mt-2 italic">The automation will handle everything for you</p>
+          <p className="text-blue-700">Go to your lesson page and click "Let's Go" to start.</p>
         </div>
       )}
 
-      <div className="flex gap-2">
-        <button
-          onClick={handleStartExam}
-          className={`flex-1 py-3 ${
-            examStarted ? 'bg-gray-400 cursor-not-allowed' : 'bg-green-600 hover:bg-green-700'
-          } text-white font-semibold rounded-lg transition-colors duration-200 shadow-sm`}
-          disabled={examStarted}>
-          {examStarted ? 'Running...' : "Let's Go"}
-        </button>
+      {/* Add divider between instructions and buttons */}
+      {showInstructions && <hr className="border-gray-200 my-1" />}
 
-        <button
-          onClick={handleDebugToggle}
-          className={`px-3 py-1 ${
-            debugMode ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700'
-          } font-medium rounded-lg transition-colors duration-200 text-sm`}>
-          {debugMode ? 'Debug: ON' : 'Debug'}
-        </button>
+      {examStarted && !showInstructions && (
+        <div className="bg-blue-50 p-4 rounded-lg border border-blue-200 robot-container">
+          <div className="text-6xl robot">🤖</div>
+        </div>
+      )}
 
-        <button
-          onClick={handleClearCache}
-          className="px-3 py-1 bg-red-100 text-red-700 hover:bg-red-200 font-medium rounded-lg transition-colors duration-200 text-sm">
-          Reset State
-        </button>
+      <div className="flex flex-col gap-3">
+        {/* Main action button in its own container */}
+        <div className="w-full">
+          <button
+            onClick={handleStartExam}
+            disabled={examStarted || processingContent || isProcessingQuestion}
+            className={`w-full py-3 h-14 flex items-center justify-center ${
+              examStarted
+                ? 'bg-gray-300 text-gray-500 cursor-not-allowed'
+                : 'bg-green-600 hover:bg-green-700 text-white'
+            } font-semibold rounded-lg transition-colors duration-200 text-lg shadow-sm`}>
+            {examStarted ? 'Automating' : "Let's Go"}
+          </button>
+        </div>
+
+        {/* Secondary buttons in their own container - only show when exam has started */}
+        {examStarted && (
+          <div className="flex gap-2">
+            <button
+              onClick={handleDebugToggle}
+              className={`px-4 py-2.5 flex-1 ${
+                debugMode ? 'bg-purple-600 text-white' : 'bg-gray-200 text-gray-700'
+              } font-medium rounded-lg transition-colors duration-200 text-base`}>
+              {debugMode ? 'Debug: ON' : 'Debug'}
+            </button>
+
+            <button
+              onClick={handleClearCache}
+              className="px-4 py-2.5 flex-1 bg-red-100 text-red-700 hover:bg-red-200 font-medium rounded-lg transition-colors duration-200 text-base">
+              Reset State
+            </button>
+          </div>
+        )}
       </div>
 
       {contentType && (
@@ -425,13 +553,20 @@ ${answers.map((answer, i) => `${i + 1}. ${answer}`).join('\n')}
           </ol>
           <button
             onClick={handleResumeAutomation}
-            className="px-4 py-2 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors duration-200">
+            className="px-5 py-2.5 bg-red-600 hover:bg-red-700 text-white font-medium rounded-lg transition-colors duration-200 text-base">
             Resume Automation
           </button>
         </div>
       )}
 
-      <div className="absolute top-2 left-2 cursor-move opacity-50 hover:opacity-100">⋮⋮</div>
+      {examSubmissionDetected && (
+        <div className="bg-green-100 p-4 rounded-lg border border-green-300 mt-4">
+          <h3 className="text-lg font-semibold text-green-800 mb-2">Exam Submission</h3>
+          <p className="text-sm text-green-700 mb-3">
+            Exam submission dialog detected. The "Submit Exam" button will be clicked automatically.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

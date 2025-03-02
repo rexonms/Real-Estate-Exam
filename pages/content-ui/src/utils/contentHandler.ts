@@ -5,7 +5,7 @@
 /**
  * Content types that can be detected
  */
-export type ContentType = 'true_false' | 'multiple_choice' | 'unknown' | 'text_content';
+export type ContentType = 'true_false' | 'multiple_choice' | 'unknown' | 'text_content' | 'unit_exam';
 
 /**
  * Interface for question data
@@ -71,6 +71,14 @@ export const detectContentType = (): ContentType => {
   const trueFalseSelectors = ['.ces-inquiry-tof', 'ces-inquiry-tof'];
   const multipleChoiceSelectors = ['.ces-inquiry-multi-choice', 'ces-inquiry-multi-choice'];
   const textContentSelectors = ['.ces-inquiry-text', 'ces-inquiry-text', '[ng-switch-when="TEXT_EDIT"]'];
+  // Update unit exam selectors to be more specific and not match text content
+  const unitExamSelectors = [
+    '.node-content-box .exam-question-box',
+    // Only consider it a unit exam if it has radio buttons or checkboxes for answers
+    '.segment-box.node-content-box:has(label.radio)',
+    '.segment-box.node-content-box:has(input[type="radio"])',
+    '.segment-box.node-content-box:has(.exam-question-box)',
+  ];
 
   // Check for true/false content
   let trueFalseElement = null;
@@ -93,14 +101,35 @@ export const detectContentType = (): ContentType => {
     if (textContentElement) break;
   }
 
+  // Check for unit exam content
+  let unitExamElement = null;
+  for (const selector of unitExamSelectors) {
+    unitExamElement = document.querySelector(selector);
+    if (unitExamElement) break;
+  }
+
+  // Additional check: if we found a unit exam element, verify it actually has question elements
+  if (unitExamElement) {
+    const hasRadioButtons = unitExamElement.querySelectorAll('label.radio, input[type="radio"]').length > 0;
+    const hasExamQuestionBox = unitExamElement.querySelector('.exam-question-box') !== null;
+
+    if (!hasRadioButtons && !hasExamQuestionBox) {
+      console.log('Found unit exam element but no radio buttons or question box - treating as text content');
+      unitExamElement = null;
+    }
+  }
+
   // Log all elements for debugging
   console.log('TRUE_FALSE Element:', trueFalseElement ? 'Found' : 'Not Found');
   console.log('MULTIPLE_CHOICE Element:', multipleChoiceElement ? 'Found' : 'Not Found');
   console.log('TEXT_CONTENT Element:', textContentElement ? 'Found' : 'Not Found');
+  console.log('UNIT_EXAM Element:', unitExamElement ? 'Found' : 'Not Found');
 
   // Additional debugging - log all content-related elements
   console.log('All content elements on page:');
-  const allContentElements = document.querySelectorAll('div[class*="inquiry"], div[ng-switch-when]');
+  const allContentElements = document.querySelectorAll(
+    'div[class*="inquiry"], div[ng-switch-when], div.exam-question-box',
+  );
   allContentElements.forEach((el, index) => {
     console.log(`Element ${index + 1}:`, el.tagName, el.className, el.getAttribute('ng-switch-when'));
   });
@@ -115,6 +144,8 @@ export const detectContentType = (): ContentType => {
     return 'true_false';
   } else if (multipleChoiceElement) {
     return 'multiple_choice';
+  } else if (unitExamElement) {
+    return 'unit_exam';
   } else if (textContentElement) {
     return 'text_content';
   } else if (nextButton) {
@@ -839,6 +870,219 @@ export const handleTextContent = async (): Promise<void> => {
 };
 
 /**
+ * Extracts data from a unit exam question
+ * @returns The extracted question data or null if extraction fails
+ */
+export const extractUnitExamQuestionData = (): QuestionData | null => {
+  try {
+    // Get the question text
+    const questionElement = document.querySelector('.node-content-box .content-text');
+    const question = questionElement ? questionElement.textContent?.trim() || '' : '';
+
+    // Get the title (for unit exams, we'll use a generic title)
+    const title = 'Unit Exam Question';
+
+    // Get the choices
+    const choiceElements = document.querySelectorAll('.exam-question-box label.radio');
+
+    // Log all choice elements for debugging
+    console.log(`Found ${choiceElements.length} exam choices`);
+
+    const choices = Array.from(choiceElements).map((choiceElement, index) => {
+      const text = choiceElement.textContent?.trim() || '';
+      console.log(`Choice ${index + 1} text: "${text}"`);
+
+      return {
+        text,
+        options: [text], // The option is the same as the text
+        optionElements: [choiceElement as HTMLElement],
+      };
+    });
+
+    // Generate a content ID
+    const contentId = generateContentId(title, question);
+
+    console.log('Extracted Unit Exam Question Data:', {
+      title,
+      question,
+      choices: choices.map(c => ({ text: c.text })),
+    });
+
+    return {
+      type: 'unit_exam',
+      contentId,
+      title,
+      question,
+      choices,
+    };
+  } catch (error) {
+    console.error('Error extracting unit exam question data:', error);
+    return null;
+  }
+};
+
+/**
+ * Selects an answer for a unit exam question
+ * @param questionData The question data
+ * @param answer The answer to select
+ * @returns Promise that resolves when the answer is selected
+ */
+export const selectUnitExamAnswer = async (questionData: QuestionData, answer: string): Promise<void> => {
+  if (questionData.type !== 'unit_exam') {
+    console.warn('Question data is not for a unit exam question');
+    return;
+  }
+
+  console.log('Selecting unit exam answer:', answer);
+
+  let answerSelected = false;
+
+  // Try exact match first
+  for (const choice of questionData.choices) {
+    if (choice.text === answer && choice.optionElements && choice.optionElements.length > 0) {
+      console.log(`Found exact match for "${answer}"`);
+      choice.optionElements[0].click();
+      answerSelected = true;
+      break;
+    }
+  }
+
+  // If no exact match, try case-insensitive match
+  if (!answerSelected) {
+    const lowerAnswer = answer.toLowerCase();
+    for (const choice of questionData.choices) {
+      if (choice.text.toLowerCase() === lowerAnswer && choice.optionElements && choice.optionElements.length > 0) {
+        console.log(`Found case-insensitive match for "${answer}"`);
+        choice.optionElements[0].click();
+        answerSelected = true;
+        break;
+      }
+    }
+  }
+
+  // If still no match, try partial match (answer contains the choice text or vice versa)
+  if (!answerSelected) {
+    for (const choice of questionData.choices) {
+      if (
+        (choice.text.includes(answer) || answer.includes(choice.text)) &&
+        choice.optionElements &&
+        choice.optionElements.length > 0
+      ) {
+        console.log(`Found partial match for "${answer}" with "${choice.text}"`);
+        choice.optionElements[0].click();
+        answerSelected = true;
+        break;
+      }
+    }
+  }
+
+  if (!answerSelected) {
+    console.warn(`Could not find a match for answer: "${answer}"`);
+    console.log(
+      'Available choices:',
+      questionData.choices.map(c => c.text),
+    );
+  }
+
+  // Wait a moment for the UI to update
+  await new Promise(resolve => setTimeout(resolve, 500));
+};
+
+/**
+ * Handles unit exam content by extracting the question, sending it to OpenAI, and selecting an answer
+ * @param callback Function to call with the extracted question data
+ * @returns Promise that resolves when the action is complete
+ */
+export const handleUnitExamContent = async (
+  callback: (questionData: QuestionData) => Promise<AnswerData>,
+): Promise<void> => {
+  console.log('Processing unit exam question');
+
+  try {
+    // Extract question data
+    const questionData = extractUnitExamQuestionData();
+    if (!questionData) {
+      console.warn('Failed to extract unit exam question data');
+      return;
+    }
+
+    console.log('Processing unit exam question data:', questionData);
+
+    // Send to callback (which will handle OpenAI processing)
+    const answerData = await callback(questionData);
+    console.log('Received answer data:', answerData);
+
+    if (answerData.answers && answerData.answers.length > 0) {
+      // For unit exam, we only need the first answer
+      await selectUnitExamAnswer(questionData, answerData.answers[0]);
+
+      // Check if the Next button is enabled after selecting an answer
+      const nextButton = document.querySelector('button.unit-btn.next-unit-btn:not([disabled])') as HTMLButtonElement;
+
+      if (nextButton) {
+        console.log('Found enabled Next button, clicking to proceed to next question');
+        nextButton.click();
+      } else {
+        console.warn('Next button not found or still disabled after selecting answer');
+      }
+    } else {
+      console.warn('No answers received from OpenAI');
+    }
+  } catch (error) {
+    console.error('Error handling unit exam content:', error);
+  }
+};
+
+/**
+ * Checks if the exam submission dialog is present
+ * @returns True if the submission dialog is visible
+ */
+export const isExamSubmissionDialogPresent = (): boolean => {
+  // Look for the dialog with the specific text about submitting the exam
+  const dialogText = document.querySelector('.dialog-content-container-outer .alert-text');
+  if (!dialogText) return false;
+
+  const text = dialogText.textContent?.toLowerCase() || '';
+  return text.includes('ready to submit this exam');
+};
+
+/**
+ * Clicks the "Submit Exam" button in the submission dialog
+ * @returns Promise that resolves to true if the button was clicked
+ */
+export const clickSubmitExamButton = async (): Promise<boolean> => {
+  return new Promise(resolve => {
+    setTimeout(() => {
+      // Look for buttons in the dialog
+      const buttons = document.querySelectorAll('.dialog-content-container-outer .alert-buttons-right button');
+      console.log(`Found ${buttons.length} buttons in the submission dialog`);
+
+      // Find the Submit Exam button
+      let submitButton: HTMLButtonElement | null = null;
+
+      Array.from(buttons).forEach((btn, index) => {
+        const btnEl = btn as HTMLButtonElement;
+        const text = btnEl.textContent?.trim().toLowerCase() || '';
+        console.log(`Button ${index + 1}: "${btnEl.textContent?.trim()}", Class="${btnEl.className}"`);
+
+        if (text.includes('submit exam')) {
+          submitButton = btnEl;
+        }
+      });
+
+      if (submitButton) {
+        console.log('Found Submit Exam button, clicking to submit the exam');
+        submitButton.click();
+        resolve(true);
+      } else {
+        console.warn('Submit Exam button not found');
+        resolve(false);
+      }
+    }, 1000);
+  });
+};
+
+/**
  * Main function to process the current content
  * @param openAICallback Function to call with question data for OpenAI processing
  * @returns Promise that resolves with the detected content type
@@ -846,6 +1090,13 @@ export const handleTextContent = async (): Promise<void> => {
 export const processCurrentContent = async (
   openAICallback?: (questionData: QuestionData) => Promise<AnswerData>,
 ): Promise<ContentType> => {
+  // First check if the exam submission dialog is present
+  if (isExamSubmissionDialogPresent()) {
+    console.log('Exam submission dialog detected, attempting to click Submit Exam button');
+    await clickSubmitExamButton();
+    return 'unknown'; // Return unknown since we're in a dialog, not a content page
+  }
+
   const contentType = detectContentType();
   console.log('Detected content type:', contentType);
 
@@ -864,6 +1115,14 @@ export const processCurrentContent = async (
         await handleMultipleChoiceContent(openAICallback);
       } else {
         console.warn('No OpenAI callback provided for multiple choice content');
+      }
+      break;
+    case 'unit_exam':
+      console.log('Processing unit exam content...');
+      if (openAICallback) {
+        await handleUnitExamContent(openAICallback);
+      } else {
+        console.warn('No OpenAI callback provided for unit exam content');
       }
       break;
     case 'text_content':
@@ -896,6 +1155,10 @@ export const debugPageContent = (): void => {
   // Check for multiple choice elements
   const multipleChoiceElement = document.querySelector('.ces-inquiry-multi-choice');
   console.log('MULTIPLE_CHOICE Element:', multipleChoiceElement ? 'Found' : 'Not Found');
+
+  // Check for unit exam elements
+  const unitExamElement = document.querySelector('.node-content-box .exam-question-box');
+  console.log('UNIT_EXAM Element:', unitExamElement ? 'Found' : 'Not Found');
 
   if (trueFalseElement) {
     const choiceBoxes = document.querySelectorAll('.tof-choice-box');
@@ -930,6 +1193,23 @@ export const debugPageContent = (): void => {
         classes: b.className,
       })),
     );
+  }
+
+  if (unitExamElement) {
+    // Log the question text
+    const questionElement = document.querySelector('.node-content-box .content-text');
+    console.log('Exam Question Text:', questionElement ? questionElement.textContent : 'Not Found');
+
+    // Log all choices
+    const choices = document.querySelectorAll('.exam-question-box label.radio');
+    console.log('Exam Choices:', choices.length);
+    Array.from(choices).forEach((choice, index) => {
+      console.log(`Choice ${index + 1} Text:`, choice.textContent?.trim());
+    });
+
+    // Log the Next button status
+    const nextButton = document.querySelector('button.unit-btn.next-unit-btn') as HTMLButtonElement;
+    console.log('Next Button:', nextButton ? `Found (Disabled: ${nextButton.disabled})` : 'Not Found');
   }
 
   if (inquiryTextElement) {
