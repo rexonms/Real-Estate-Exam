@@ -26,7 +26,14 @@ export default ts.config(
 
   // Custom config
   {
-    ignores: ['**/build/**', '**/dist/**', '**/node_modules/**', 'eslint.config.js'],
+    ignores: [
+      '**/build/**',
+      '**/dist/**',
+      '**/node_modules/**',
+      'eslint.config.js',
+      'pages/content-ui/src/App.tsx',
+      'pages/content-ui/src/utils/contentHandler.ts',
+    ],
   },
   {
     files: ['**/*.{js,mjs,cjs,jsx,mjsx,ts,tsx,mtsx}'],

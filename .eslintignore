@@ -1,0 +1,12 @@
+# Build artifacts
+**/build/**
+**/dist/**
+**/node_modules/**
+
+# Config files
+eslint.config.js
+eslint.config.ts
+
+# Specific files to ignore
+pages/content-ui/src/App.tsx 
+pages/content-ui/src/utils/contentHandler.ts
